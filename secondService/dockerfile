@@ -1,0 +1,30 @@
+FROM mcr.microsoft.com/dotnet/core/sdk:3.0.100 AS build
+WORKDIR /app
+
+COPY *.csproj ./
+RUN dotnet restore secondService.csproj
+
+COPY . .
+# build and create the dll
+RUN dotnet publish -c Release -o out secondService.csproj
+
+# create the actual deployable image
+FROM mcr.microsoft.com/dotnet/core/aspnet:3.0.0 AS runtime
+
+# Add the datadog tracer
+RUN curl -LO https://github.com/DataDog/dd-trace-dotnet/releases/download/v1.10.0/datadog-dotnet-apm_1.10.0_amd64.deb
+RUN dpkg -i ./datadog-dotnet-apm_1.10.0_amd64.deb
+
+WORKDIR /app
+
+COPY --from=build /app/out ./
+
+# datadog APM requirments
+ENV CORECLR_ENABLE_PROFILING=1
+ENV CORECLR_PROFILER={846F5F1C-F9AE-4B07-969E-05C26BC060D8}
+ENV CORECLR_PROFILER_PATH=/opt/datadog/Datadog.Trace.ClrProfiler.Native.so
+ENV DD_INTEGRATIONS=/opt/datadog/integrations.json
+ENV DD_DOTNET_TRACER_HOME=/opt/datadog
+ENV DD_LOGS_INJECTION=true
+
+ENTRYPOINT dotnet secondService.dll
